@@ -20,6 +20,7 @@
           packages = with pkgs; [
             python3
             mopidy
+            mopidy-mpd
             gst_all_1.gstreamer
             gst_all_1.gst-plugins-bad
             gst_all_1.gst-plugins-base

@@ -1,9 +1,11 @@
 import re
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import requests
 from mopidy import backend
-from pytube.cipher import Cipher
+from pytubefix.cipher import Cipher
+from pytubefix import extract
+from pytubefix import YouTube
 
 from mopidy_ytmusic import logger
 
@@ -18,11 +20,12 @@ class YTMusicPlaybackProvider(backend.PlaybackProvider):
 
     def update_cipher(self, playerurl):
         self.Youtube_Player_URL = playerurl
-        response = requests.get("https://music.youtube.com" + playerurl)
+        js_url = "https://music.youtube.com" + playerurl
+        response = requests.get(js_url)
         m = re.search(r"signatureTimestamp[:=](\d+)", response.text)
         if m:
             self.signatureTimestamp = m.group(1)
-            self.PyTubeCipher = Cipher(js=response.text)
+            self.PyTubeCipher = Cipher(js=response.text, js_url=js_url)
             logger.debug(
                 "YTMusic updated signatureTimestamp to %s",
                 self.signatureTimestamp,
@@ -37,6 +40,7 @@ class YTMusicPlaybackProvider(backend.PlaybackProvider):
         with the addition of the call to set_metadata.  Why doesn't
         mopidy just do this?
         """
+        logger.info("TRACK: %s", track)
         uri = self.translate_uri(track.uri)
         if uri != track.uri:
             logger.debug("Backend translated URI from %s to %s", track.uri, uri)
@@ -59,10 +63,35 @@ class YTMusicPlaybackProvider(backend.PlaybackProvider):
         try:
             bId = uri.split(":")[2]
             self.last_id = bId
-            return self._get_track(bId)
+            return self._get_track2(bId)
+            # return self._get_track(bId)
         except Exception as e:
             logger.error('translate_uri error "%s"', str(e))
             return None
+
+    def _get_track2(self, bId):
+        watch_url = self.backend.api.get_song(
+            bId, signatureTimestamp=self.signatureTimestamp
+        )["microformat"]["microformatDataRenderer"]["urlCanonical"]
+        streams = YouTube(watch_url).streams
+        url = streams[0].url
+        if url is not None:
+            if (
+                self.backend.verify_track_url
+                and requests.head(url).status_code == 403
+            ):
+                # It's forbidden. Likely because the player url changed and we
+                # decoded the signature incorrectly.
+                # Refresh the player, log an error, and send back none.
+                logger.error(
+                    "YTMusic found forbidden URL. Updating player URL now."
+                )
+                self.backend._youtube_player_refresh_timer.now()
+            else:
+                # Return the decoded youtube url to mopidy for playback.
+                logger.debug("YTMusic found %s", url)
+                return url
+        return None
 
     def _get_track(self, bId):
         streams = self.backend.api.get_song(
