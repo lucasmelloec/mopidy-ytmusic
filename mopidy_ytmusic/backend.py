@@ -2,6 +2,7 @@ import hashlib
 import random
 import re
 import time
+import json
 
 import pykka
 import requests
@@ -16,7 +17,7 @@ from ytmusicapi.navigation import (
     TITLE_TEXT,
     nav,
 )
-from ytmusicapi import YTMusic
+from ytmusicapi import YTMusic, OAuthCredentials
 
 from mopidy_ytmusic import logger
 
@@ -66,10 +67,14 @@ class YTMusicBackend(
             self._ytmusicapi_oauth_json = config["ytmusic"]["oauth_json"]
             self.oauth = True
 
-        if self.auth and not self.oauth:
-            self.api = YTMusic(auth=self._ytmusicapi_auth_json)
-        elif self.oauth:
-            self.api = YTMusic(auth=self._ytmusicapi_oauth_json)
+        if config["ytmusic"]["credentials_json"]:
+            credentials_path = config["ytmusic"]["oauth_json"]
+            with open(credentials_path, "r") as file:
+                self._ytmusicapi_credentials_json = json.load(file)
+            self.oauth = True
+
+        if self.oauth:
+            self.api = YTMusic(self._ytmusicapi_oauth_json, OAuthCredentials(client_id=self._ytmusicapi_credentials_json["cliend_id"], client_secret=self._ytmusicapi_credentials_json["client_secret"]))
         else:
             self.api = YTMusic()
 
